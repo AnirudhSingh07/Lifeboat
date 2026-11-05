@@ -1,0 +1,37 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+build/
+out/
+cache/
+.next/
+coverage/
+
+# foundry
+packages/contracts/out/
+packages/contracts/cache/
+packages/contracts/broadcast/**/dry-run/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+*.key
+*.wots
+keystore/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# generated test vectors are committed on purpose (see packages/contracts/test/vectors)

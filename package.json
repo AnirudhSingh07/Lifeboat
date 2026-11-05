@@ -1,0 +1,22 @@
+{
+  "name": "lifeboat",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Lifeboat — a quantum-veto vault for Ethereum. Your everyday ECDSA key can only start timelocked withdrawals; a post-quantum key can veto them or move funds instantly.",
+  "license": "MIT",
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "signer:test": "pnpm --filter @lifeboat/pq-signer test",
+    "contracts:test": "pnpm --filter @lifeboat/contracts test",
+    "contracts:gas": "pnpm --filter @lifeboat/contracts gas",
+    "vectors": "pnpm --filter @lifeboat/pq-signer vectors",
+    "web": "pnpm --filter @lifeboat/web dev",
+    "watcher": "pnpm --filter @lifeboat/watcher start",
+    "anvil": "anvil"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
