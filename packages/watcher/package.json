@@ -1,0 +1,21 @@
+{
+  "name": "@lifeboat/watcher",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Open-source watcher: alerts the owner when a withdrawal is requested, with an optional pre-signed panic-freeze that can only delay funds (revoke the hot key), never move them.",
+  "scripts": {
+    "start": "tsx src/watcher.ts",
+    "prepare-panic": "tsx src/prepare-panic.ts"
+  },
+  "dependencies": {
+    "@lifeboat/pq-signer": "workspace:*",
+    "@lifeboat/sdk": "workspace:*",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
