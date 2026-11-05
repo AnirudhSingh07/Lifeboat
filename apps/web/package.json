@@ -1,0 +1,28 @@
+{
+  "name": "@lifeboat/web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@lifeboat/pq-signer": "workspace:*",
+    "@lifeboat/sdk": "workspace:*",
+    "@emotion/is-prop-valid": "^1.3.1",
+    "@worldcoin/idkit": "^2.2.2",
+    "next": "14.2.15",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.6.3"
+  }
+}
