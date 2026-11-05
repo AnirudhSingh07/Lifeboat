@@ -1,0 +1,29 @@
+{
+  "name": "@lifeboat/sdk",
+  "version": "0.0.1",
+  "private": true,
+  "description": "TypeScript client for Lifeboat vaults: read state, request/execute withdrawals, and drive PQ actions (veto, instant move, revoke, rotate) with a LifeboatSigner.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "sync-abis": "node scripts/sync-abis.mjs",
+    "build": "pnpm sync-abis && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lifeboat/pq-signer": "workspace:*",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}
