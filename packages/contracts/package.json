@@ -1,0 +1,13 @@
+{
+  "name": "@lifeboat/contracts",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Lifeboat vault + WOTS+/XMSS post-quantum signature verifier (Foundry).",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vv",
+    "gas": "FOUNDRY_PROFILE=gas forge test --match-contract Gas -vvv",
+    "fmt": "forge fmt",
+    "clean": "forge clean"
+  }
+}
