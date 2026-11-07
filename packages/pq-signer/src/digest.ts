@@ -6,6 +6,7 @@ export const ActionType = {
   INSTANT_MOVE: 2,
   REVOKE_HOT: 3,
   ROTATE_ROOT: 4,
+  EXECUTE: 5,
 } as const;
 export type ActionType = (typeof ActionType)[keyof typeof ActionType];
 

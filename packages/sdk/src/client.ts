@@ -4,11 +4,14 @@ import {
   type PublicClient,
   type WalletClient,
   type Account,
+  type LocalAccount,
+  encodeFunctionData,
 } from "viem";
 import { LifeboatSigner, fromHex } from "@lifeboat/pq-signer";
 import { lifeboatVaultAbi } from "./abis.js";
 import {
   ActionType,
+  executeParamsHash,
   instantMoveParamsHash,
   revokeParamsHash,
   rotateParamsHash,
@@ -25,6 +28,20 @@ export interface VaultState {
   hotNonce: bigint;
   withdrawalCount: bigint;
   balance: bigint;
+  // spend policy
+  dailyLimit: bigint;
+  spentInWindow: bigint;
+  // guardian
+  guardianCount: bigint;
+  guardianThreshold: bigint;
+  // inheritance
+  beneficiary: Address;
+  inactivityPeriod: bigint;
+  lastActivity: bigint;
+  inheritanceUnlock: bigint;
+  // emergency freeze
+  frozen: boolean;
+  freezer: Address;
 }
 
 export interface PendingWithdrawal {
@@ -62,21 +79,56 @@ export class LifeboatClient {
     }) as Promise<T>;
   }
 
+  /** Read that tolerates older vault deployments missing newer functions. */
+  private async safeRead<T>(functionName: string, fallback: T, args: readonly unknown[] = []): Promise<T> {
+    try {
+      return await this.read<T>(functionName, args);
+    } catch {
+      return fallback;
+    }
+  }
+
   // --------------------------------- reads ---------------------------------
 
   async getState(): Promise<VaultState> {
-    const [hotKey, pqRoot, pqPubSeed, timelock, pqEpoch, hotNonce, withdrawalCount, balance] =
-      await Promise.all([
-        this.read<Address>("hotKey"),
-        this.read<Hex>("pqRoot"),
-        this.read<Hex>("pqPubSeed"),
-        this.read<bigint>("timelock"),
-        this.read<number>("pqEpoch"),
-        this.read<bigint>("hotNonce"),
-        this.read<bigint>("withdrawalCount"),
-        this.publicClient.getBalance({ address: this.address }),
-      ]);
-    return { hotKey, pqRoot, pqPubSeed, timelock, pqEpoch, hotNonce, withdrawalCount, balance };
+    const [
+      hotKey, pqRoot, pqPubSeed, timelock, pqEpoch, hotNonce, withdrawalCount, balance,
+      dailyLimit, spentInWindow, guardianCount, guardianThreshold,
+      beneficiary, inactivityPeriod, lastActivity, inheritanceUnlock, frozen, freezer,
+    ] = await Promise.all([
+      this.read<Address>("hotKey"),
+      this.read<Hex>("pqRoot"),
+      this.read<Hex>("pqPubSeed"),
+      this.read<bigint>("timelock"),
+      this.read<number>("pqEpoch"),
+      this.read<bigint>("hotNonce"),
+      this.read<bigint>("withdrawalCount"),
+      this.publicClient.getBalance({ address: this.address }),
+      // newer fields — tolerate vaults deployed before these existed
+      this.safeRead<bigint>("dailyLimit", 0n),
+      this.safeRead<bigint>("spentInWindow", 0n),
+      this.safeRead<bigint>("guardianCount", 0n),
+      this.safeRead<bigint>("guardianThreshold", 0n),
+      this.safeRead<Address>("beneficiary", "0x0000000000000000000000000000000000000000"),
+      this.safeRead<bigint>("inactivityPeriod", 0n),
+      this.safeRead<bigint>("lastActivity", 0n),
+      this.safeRead<bigint>("inheritanceUnlock", 0n),
+      this.safeRead<boolean>("frozen", false),
+      this.safeRead<Address>("freezer", "0x0000000000000000000000000000000000000000"),
+    ]);
+    return {
+      hotKey, pqRoot, pqPubSeed, timelock, pqEpoch, hotNonce, withdrawalCount, balance,
+      dailyLimit, spentInWindow, guardianCount, guardianThreshold,
+      beneficiary, inactivityPeriod, lastActivity, inheritanceUnlock, frozen, freezer,
+    };
+  }
+
+  isAllowed(dest: Address): Promise<boolean> {
+    return this.read<boolean>("allowlist", [dest]);
+  }
+
+  isGuardian(addr: Address): Promise<boolean> {
+    return this.read<boolean>("isGuardian", [addr]);
   }
 
   async getPending(id: bigint): Promise<PendingWithdrawal> {
@@ -196,5 +248,157 @@ export class LifeboatClient {
         args: [newRoot, newPubSeed, sig as never, worldIdProof],
       }),
     );
+  }
+
+  /** PQ-authorized arbitrary call from the vault (e.g. drive an ENSv2 registry). */
+  pqExecute(target: Address, value: bigint, data: Hex, signer: LifeboatSigner) {
+    return this.submitPQ(ActionType.EXECUTE, executeParamsHash(target, value, data), signer, (sig) =>
+      this.walletClient!.writeContract({
+        chain: this.walletClient!.chain,
+        account: this.account,
+        address: this.address,
+        abi: lifeboatVaultAbi,
+        functionName: "pqExecute",
+        args: [target, value, data, sig as never],
+      }),
+    );
+  }
+
+  // ---------------- config (strong-key only, via a pqExecute self-call) ----------------
+
+  /** Encode a call to one of the vault's own onlySelf setters and run it via pqExecute. */
+  private pqSelfCall(functionName: string, args: readonly unknown[], signer: LifeboatSigner) {
+    const data = encodeFunctionData({ abi: lifeboatVaultAbi, functionName: functionName as never, args: args as never });
+    return this.pqExecute(this.address, 0n, data, signer);
+  }
+
+  setDailyLimit(limit: bigint, signer: LifeboatSigner) {
+    return this.pqSelfCall("setDailyLimit", [limit], signer);
+  }
+  setAllowed(dest: Address, allowed: boolean, signer: LifeboatSigner) {
+    return this.pqSelfCall("setAllowed", [dest, allowed], signer);
+  }
+  addGuardian(g: Address, signer: LifeboatSigner) {
+    return this.pqSelfCall("addGuardian", [g], signer);
+  }
+  removeGuardian(g: Address, signer: LifeboatSigner) {
+    return this.pqSelfCall("removeGuardian", [g], signer);
+  }
+  setGuardianThreshold(t: bigint, signer: LifeboatSigner) {
+    return this.pqSelfCall("setGuardianThreshold", [t], signer);
+  }
+  setBeneficiary(who: Address, signer: LifeboatSigner) {
+    return this.pqSelfCall("setBeneficiary", [who], signer);
+  }
+  setInactivityPeriod(period: bigint, signer: LifeboatSigner) {
+    return this.pqSelfCall("setInactivityPeriod", [period], signer);
+  }
+
+  // ------------------------------ guardian (M-of-N) ------------------------------
+
+  /** Sign `digest` with each guardian and order by signer address (contract requires asc). */
+  private async guardianSigs(digest: Hex, guardians: LocalAccount[]): Promise<Hex[]> {
+    const sorted = [...guardians].sort((a, b) =>
+      a.address.toLowerCase() < b.address.toLowerCase() ? -1 : 1,
+    );
+    const sigs: Hex[] = [];
+    for (const g of sorted) sigs.push(await g.sign!({ hash: digest }));
+    return sigs;
+  }
+
+  async guardianVeto(id: bigint, guardians: LocalAccount[]): Promise<Hex> {
+    const digest = await this.read<Hex>("guardianDigest", [ActionType.VETO, vetoParamsHash(id)]);
+    const sigs = await this.guardianSigs(digest, guardians);
+    return this.walletClient!.writeContract({
+      chain: this.walletClient!.chain,
+      account: this.account,
+      address: this.address,
+      abi: lifeboatVaultAbi,
+      functionName: "guardianVeto",
+      args: [id, sigs],
+    });
+  }
+
+  async guardianExecute(
+    target: Address,
+    value: bigint,
+    data: Hex,
+    guardians: LocalAccount[],
+  ): Promise<Hex> {
+    const digest = await this.read<Hex>("guardianDigest", [
+      ActionType.EXECUTE,
+      executeParamsHash(target, value, data),
+    ]);
+    const sigs = await this.guardianSigs(digest, guardians);
+    return this.walletClient!.writeContract({
+      chain: this.walletClient!.chain,
+      account: this.account,
+      address: this.address,
+      abi: lifeboatVaultAbi,
+      functionName: "guardianExecute",
+      args: [target, value, data, sigs],
+    });
+  }
+
+  // ------------------------------ inheritance ------------------------------
+
+  heartbeat(): Promise<Hex> {
+    return this.walletClient!.writeContract({
+      chain: this.walletClient!.chain,
+      account: this.account,
+      address: this.address,
+      abi: lifeboatVaultAbi,
+      functionName: "heartbeat",
+      args: [],
+    });
+  }
+
+  /** Beneficiary actions are sent FROM the beneficiary wallet (msg.sender == beneficiary). */
+  startInheritanceClaim(fromWallet?: WalletClient): Promise<Hex> {
+    const wc = fromWallet ?? this.walletClient!;
+    return wc.writeContract({
+      chain: wc.chain,
+      account: wc.account!,
+      address: this.address,
+      abi: lifeboatVaultAbi,
+      functionName: "startInheritanceClaim",
+      args: [],
+    });
+  }
+
+  claimInheritance(fromWallet?: WalletClient): Promise<Hex> {
+    const wc = fromWallet ?? this.walletClient!;
+    return wc.writeContract({
+      chain: wc.chain,
+      account: wc.account!,
+      address: this.address,
+      abi: lifeboatVaultAbi,
+      functionName: "claimInheritance",
+      args: [],
+    });
+  }
+
+  // ------------------------------ emergency freeze ------------------------------
+
+  /** Pause all hot-path outflow. Callable by the freezer role (e.g. a watcher bot). */
+  freeze(): Promise<Hex> {
+    return this.walletClient!.writeContract({
+      chain: this.walletClient!.chain,
+      account: this.account,
+      address: this.address,
+      abi: lifeboatVaultAbi,
+      functionName: "freeze",
+      args: [],
+    });
+  }
+
+  /** Lift the freeze — strong-key only. */
+  unfreeze(signer: LifeboatSigner) {
+    return this.pqSelfCall("unfreeze", [], signer);
+  }
+
+  /** Designate the low-power freezer address (strong-key only). */
+  setFreezer(who: Address, signer: LifeboatSigner) {
+    return this.pqSelfCall("setFreezer", [who], signer);
   }
 }

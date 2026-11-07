@@ -1,0 +1,26 @@
+{
+  "name": "@lifeboat/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "lifeboat — command-line devtool to generate PQ keys, deploy a Lifeboat vault, and drive every action (request, veto, instant-move, revoke, rotate) from the terminal.",
+  "bin": {
+    "lifeboat": "./dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "cli": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lifeboat/pq-signer": "workspace:*",
+    "@lifeboat/sdk": "workspace:*",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

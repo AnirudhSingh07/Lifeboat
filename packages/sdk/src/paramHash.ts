@@ -7,6 +7,7 @@ export const ActionType = {
   INSTANT_MOVE: 2,
   REVOKE_HOT: 3,
   ROTATE_ROOT: 4,
+  EXECUTE: 5,
 } as const;
 export type ActionType = (typeof ActionType)[keyof typeof ActionType];
 
@@ -23,6 +24,15 @@ export const revokeParamsHash: Hex = zeroHash;
 
 export function rotateParamsHash(newRoot: Hex, newPubSeed: Hex): Hex {
   return keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [newRoot, newPubSeed]));
+}
+
+export function executeParamsHash(target: Address, value: bigint, data: Hex): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: "address" }, { type: "uint256" }, { type: "bytes32" }],
+      [target, value, keccak256(data)],
+    ),
+  );
 }
 
 /** On-chain PQSig tuple shape. */

@@ -50,6 +50,35 @@ two keys with very different powers:
 
 ---
 
+## Beyond quantum: a drain-resistant everyday vault (useful today)
+
+The same machinery — "the everyday key can only start a slow, vetoable withdrawal" — defends
+against the thing actually draining users *today* (phishing, malicious approvals, malware,
+compromised seeds). So Lifeboat is **anti-theft now, quantum-proof tomorrow**, on one codebase:
+
+- **Risk-based spend policy** — sends to an allowlisted address or within a rolling **daily
+  limit** are instant; everything else is timelocked + vetoable. Small/known payments stay
+  frictionless; a drainer is capped to the allowance you set. (Policy is set only by the strong
+  key.)
+- **Pluggable guardian (M-of-N ECDSA)** — the "strong" veto/execute role can be a **hardware
+  wallet (1-of-1)**, **social recovery (M-of-N friends)**, or an MPC signer — not only the PQ
+  key. Quantum-safety is one option, available by construction.
+- **Inheritance / dead-man's switch** — after prolonged inactivity a **beneficiary** can sweep
+  the vault; any owner heartbeat during the grace window cancels it.
+- **Emergency freeze + auto-responder** — a low-power **freezer** role (or a guardian) can pause
+  all outflow; it can only delay, never move funds, so an always-on **watcher bot auto-vetoes or
+  freezes** suspicious withdrawals unattended — taking the human off the "veto in time" critical
+  path. Lifting a freeze needs the quantum key.
+- **PQ-controlled smart account (`pqExecute`)** — the vault can make arbitrary calls under a PQ
+  signature, so it can hold and exercise ENSv2 roles and act as a true PQ-secure wallet.
+- **ERC-7579 module** (`LifeboatExecutor`) — add the timelock+veto to an **existing** modular
+  smart account instead of migrating. MVP: guardian as the strong key; the PQ verifier plugs in
+  the same way. (Governs funds routed through the account; the raw-EOA gap is the documented
+  protocol-level limitation.)
+
+All of the above are covered by the 52-test Foundry suite (spend policy, guardian quorum,
+inheritance, ENS protection, module).
+
 ## What's in this repo
 
 ```
@@ -57,6 +86,7 @@ packages/
   contracts/     Foundry — LifeboatVault + WOTS+/XMSS verifier (LifeboatPQ) + tests
   pq-signer/     TypeScript WOTS+/XMSS one-time signer (keys never leave the device)
   sdk/           viem client + deploy helpers + action encoding (the devtool foundation)
+  cli/           `lifeboat` CLI devtool — keygen, deploy, status, request, veto, …
   watcher/       event watcher + alerting + optional pre-signed "panic freeze"
   demo/          scripted end-to-end attack→veto flow against a local node
 apps/
@@ -121,6 +151,24 @@ VAULT_ADDRESS=0x... pnpm watcher  # terminal C: point at the deployed vault
 > The DApp is **local-first**: it deploys a fresh vault to Anvil and generates the PQ tree
 > in your browser. The dev key it uses is a public Anvil account — never real funds.
 
+### Devtool: the `lifeboat` CLI
+
+The same operations from the terminal, with the PQ master seed held in a local keyfile and the
+one-time leaf index advanced automatically after each action:
+
+```bash
+cd packages/cli
+pnpm exec tsx src/cli.ts keygen  --height 10 --key vault.key.json
+pnpm exec tsx src/cli.ts deploy  --key vault.key.json --hot 0xf39F…2266 --timelock 60 --fund 10
+pnpm exec tsx src/cli.ts status
+pnpm exec tsx src/cli.ts request --to 0x3C44…93BC --amount 5 --hot-pk 0xac09…ff80  # the "attacker"
+pnpm exec tsx src/cli.ts veto    --id 1 --key vault.key.json                        # the PQ rescue
+# also: instant-move, revoke, rotate
+```
+
+`keygen`/`deploy`/`status`/`request`/`veto` are verified end-to-end against Anvil. The keyfile
+holds your post-quantum master seed — keep it secret.
+
 ---
 
 ## Where each sponsor fits
@@ -133,12 +181,22 @@ cross-checked; the alt-mempool submission is wired as an adapter to drop onto th
 on-site (endpoints + frame layout confirmed with the alt-mempool team). _Backup slot: Best
 CROPS App (see below)._
 
-### ENSv2 — Enhanced Access Control _(planned, adapter-ready)_
-If your ECDSA key controls your ENS name, a quantum attacker can repoint `you.eth`. The plan:
-put the critical roles (address record, name transfer) under the PQ-controlled vault and
-leave only low-risk roles (avatar, description) with the hot key, then publish the vault
-address + PQ commitment as records. Lives on Sepolia; a cross-chain gap with the alt-mempool
-devnet is noted below.
+### ENSv2 — Enhanced Access Control _(built)_
+If your ECDSA key controls your ENS name, a quantum attacker can repoint `you.eth` and
+redirect everyone who pays you. Lifeboat puts the name's **critical EAC role**
+`ROLE_SET_RESOLVER` (`1 << 24`) — plus subregistry/transfer — under the **vault**, which only
+ever acts under a post-quantum signature. The vault exercises those roles through a new
+PQ-gated primitive, **`pqExecute(target, value, data, PQSig)`**, which also turns the vault
+into a genuine PQ-secure smart account.
+
+- `src/ens/IEACRegistry.sol` + a faithful `EACRegistryMock.sol` using the real ENSv2 role
+  constants and `grantRoles`/`hasRoles`/`setResolver` semantics (docs.ens.domains/ensv2).
+- Scenario test (`test/ENSProtection.t.sol`, 5 passing): the attacker's stolen key **cannot**
+  repoint the resolver (no role); the owner repoints via `vault.pqExecute(setResolver…)`.
+- Drive it from the CLI: `lifeboat exec --target <registry> --data <setResolver calldata>`.
+
+Verified locally against the mock registry; point at the real ENSv2 registry on Sepolia to go
+live. The hot key keeps only low-risk, resolver-level records (avatar/description).
 
 ### World — IDKit _(built)_
 The PQ key is a single point of failure, so we gate the one irreversible admin action —

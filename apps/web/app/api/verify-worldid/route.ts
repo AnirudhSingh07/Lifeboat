@@ -1,64 +1,49 @@
 import { NextResponse } from "next/server";
 
 /**
- * Server-side World ID verification for Lifeboat's PQ-root rotation.
+ * World ID v4 server-side verification for Lifeboat PQ-root rotation.
  *
- * Verifies the IDKit proof against the World Developer Portal v2 API, then enforces the
- * "same unique human" rule: the first successful proof enrolls a nullifier; later
- * rotations must present the SAME nullifier (deterministic per person for a fixed action).
+ * The client (IDKitRequestWidget) returns an IDKitResultV4 payload; we forward it as-is to
+ * the v4 verify endpoint keyed by the RP id, then enforce "same unique human" via the
+ * RP-scoped nullifier (responses[0].nullifier). World ID is a human-recovery factor only —
+ * the PQ signature is still required on-chain.
  *
- * World ID is a human-recovery factor only — the PQ signature is still required on-chain.
- *
- * Env: WORLD_APP_ID (or NEXT_PUBLIC_WORLD_APP_ID), WORLD_ACTION (default "rotate-pq-root").
- * If no app id is configured, responds { configured: false } so the UI falls back to a
- * clearly-labelled simulated gate for local demos.
+ * Env: WORLD_RP_ID (or NEXT_PUBLIC_WORLD_RP_ID), WORLD_RP_PRIVATE_KEY (enables the flow).
  */
+const RP_ID = process.env.WORLD_RP_ID ?? process.env.NEXT_PUBLIC_WORLD_RP_ID ?? "";
+const CONFIGURED = Boolean(RP_ID && process.env.WORLD_RP_PRIVATE_KEY);
+const DEFAULT_ACTION = process.env.WORLD_ACTION ?? process.env.NEXT_PUBLIC_WORLD_ACTION ?? "rotate-pq-root";
 
-const APP_ID = process.env.WORLD_APP_ID ?? process.env.NEXT_PUBLIC_WORLD_APP_ID ?? "";
-const DEFAULT_ACTION = process.env.WORLD_ACTION ?? "rotate-pq-root";
+// Demo-grade enrollment store (resets on restart). Production: persist per vault.
+const enrolled = new Map<string, string>(); // action -> nullifier
 
-// Demo-grade enrollment store (resets on server restart). Production: persist per vault.
-const enrolled = new Map<string, string>(); // action -> nullifier_hash
-
-interface IDKitProof {
-  merkle_root: string;
-  nullifier_hash: string;
-  proof: string;
-  verification_level: string;
+export async function GET() {
+  return NextResponse.json({ configured: CONFIGURED, action: DEFAULT_ACTION, version: "v4" });
 }
 
 export async function POST(req: Request) {
-  if (!APP_ID) {
-    return NextResponse.json({ configured: false });
-  }
+  if (!CONFIGURED) return NextResponse.json({ configured: false });
 
-  let body: { payload?: IDKitProof; action?: string; signal?: string; mode?: "enroll" | "rotate" };
+  let body: { payload?: unknown; action?: string; mode?: "enroll" | "rotate" };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ success: false, detail: "bad request body" }, { status: 400 });
   }
-
-  const { payload, signal, mode = "rotate" } = body;
-  const action = body.action ?? DEFAULT_ACTION;
+  const payload = body.payload as
+    | { responses?: Array<{ nullifier?: string }>; action?: string }
+    | undefined;
   if (!payload) {
     return NextResponse.json({ success: false, detail: "missing proof payload" }, { status: 400 });
   }
+  const action = body.action ?? payload.action ?? DEFAULT_ACTION;
 
-  // 1. Verify the proof with the Developer Portal.
-  const res = await fetch(`https://developer.worldcoin.org/api/v2/verify/${APP_ID}`, {
+  // 1. Verify the proof against the World ID v4 endpoint (forward the payload as-is).
+  const res = await fetch(`https://developer.world.org/api/v4/verify/${RP_ID}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      nullifier_hash: payload.nullifier_hash,
-      merkle_root: payload.merkle_root,
-      proof: payload.proof,
-      verification_level: payload.verification_level,
-      action,
-      signal_hash: signal,
-    }),
+    body: JSON.stringify(payload),
   });
-
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
     return NextResponse.json(
@@ -67,14 +52,15 @@ export async function POST(req: Request) {
     );
   }
 
-  const nullifier = payload.nullifier_hash;
-
-  // 2. Enforce "same unique human".
-  if (mode === "enroll") {
+  // 2. Enforce "same unique human" via the RP-scoped nullifier.
+  const nullifier = payload.responses?.[0]?.nullifier;
+  if (!nullifier) {
+    return NextResponse.json({ success: false, detail: "no nullifier in proof" }, { status: 200 });
+  }
+  if (body.mode === "enroll") {
     enrolled.set(action, nullifier);
     return NextResponse.json({ success: true, enrolled: true, nullifier_hash: nullifier });
   }
-
   const known = enrolled.get(action);
   if (known && known !== nullifier) {
     return NextResponse.json(
@@ -82,11 +68,7 @@ export async function POST(req: Request) {
       { status: 200 },
     );
   }
-  if (!known) enrolled.set(action, nullifier); // first rotate also enrolls
+  if (!known) enrolled.set(action, nullifier);
 
   return NextResponse.json({ success: true, nullifier_hash: nullifier });
-}
-
-export async function GET() {
-  return NextResponse.json({ configured: Boolean(APP_ID), action: DEFAULT_ACTION });
 }

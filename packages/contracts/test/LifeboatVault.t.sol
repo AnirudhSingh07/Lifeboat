@@ -72,6 +72,15 @@ contract LifeboatVaultTest is Test {
         assertFalse(vetoed);
     }
 
+    function test_requestWithdrawal_directFromHotKey() public {
+        // a real wallet (the hot key) can call directly, no relayed signature
+        vm.prank(hotKey);
+        uint256 id = vault.requestWithdrawal(owner, 3 ether, "");
+        (address to, uint256 amount,,) = vault.pending(id);
+        assertEq(to, owner);
+        assertEq(amount, 3 ether);
+    }
+
     function test_requestWithdrawal_rejectsWrongSigner() public {
         (, uint256 wrongPk) = makeAddrAndKey("not-the-hot-key");
         bytes32 digest = vault.requestDigest(attacker, 1 ether, vault.hotNonce());

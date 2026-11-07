@@ -33,3 +33,21 @@ export const testClient = createTestClient({ chain: anvil, mode: "anvil", transp
 
 /** XMSS height used for the in-browser demo (64 one-time keys — fast to generate). */
 export const DEMO_TREE_HEIGHT = 6;
+
+// DEV ONLY demo roles, so the "useful today" features are clickable without extra setup.
+// Anvil account #4 plays a hardware-wallet guardian; #5 plays an inheritance beneficiary.
+const GUARDIAN_PK =
+  "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a" as Hex;
+const BENEFICIARY_PK =
+  "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba" as Hex;
+
+export const guardianAccount = privateKeyToAccount(GUARDIAN_PK);
+export const beneficiaryAccount = privateKeyToAccount(BENEFICIARY_PK);
+export const beneficiaryWallet = createWalletClient({
+  account: beneficiaryAccount,
+  chain: anvil,
+  transport,
+});
+
+/** Short demo inactivity so the dead-man's-switch countdown is watchable (30s). */
+export const DEMO_INACTIVITY_SECONDS = 30n;
